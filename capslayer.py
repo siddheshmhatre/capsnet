@@ -1,8 +1,10 @@
- import torch
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 from torch.autograd import Variable
+
+USE_CUDA = torch.cuda.is_available()
 
 class CapsuleLayer(nn.Module):
     def __init__(self, num_route_weights, num_capsules, input_channels,
@@ -36,6 +38,9 @@ class CapsuleLayer(nn.Module):
             u = x[:, None, :, None, :] @ self.routing_weights[None, :, :, :, :]
 
             logits = Variable(torch.zeros(*u.size()))
+
+            if USE_CUDA:
+                logits = logits.cuda()
 
             # Dynamic routing
             for i in range(self.num_iterations):
