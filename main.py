@@ -6,13 +6,15 @@ import torch.nn.functional as F
 import torchvision.transforms as transforms
 
 from torch.autograd import Variable
+from torchvision.utils import save_image
 from capslayer import CapsuleLayer
 from capsloss import CapsuleLoss
 from capsnet import CapsNet
 
 USE_CUDA = torch.cuda.is_available()
-EPOCHS = 5
+EPOCHS = 50
 BATCH_SIZE = 64
+CHECKPOINT = "model"
 
 def main():
     dataset = torchvision.datasets.MNIST(root='./data', train=True,
@@ -33,7 +35,7 @@ def main():
     for j in range(EPOCHS):
         for i, data in enumerate(loader):
             images, labels = data
-            labels = torch.sparse.torch.eye(10).index_select(dim=0, index=labels)
+            labels = torch.eye(10).index_select(dim=0, index=labels)
 
             if USE_CUDA:
                 images, labels = images.cuda(), labels.cuda()
@@ -45,9 +47,10 @@ def main():
             caps_loss.backward()
             optimizer.step()
 
-            print ('{}/{} Loss: {}'.format(i, len(loader), caps_loss.data))
+            print ('Epoch: {} {}/{} Loss: {}'.format(j, i, len(loader), caps_loss.data))
 
         test(net, loss)
+        torch.save(net.state_dict(), 'model')
 
 def test(net, loss):
     net.eval()
@@ -58,18 +61,30 @@ def test(net, loss):
                                          num_workers=2)
 
     total_loss = 0
+    correct_preds = 0
     for i, data in enumerate(loader):
         images, labels = data
-        labels = torch.sparse.torch.eye(10).index_select(dim=0, index=labels)
+        labels = torch.eye(10).index_select(dim=0, index=labels)
         if USE_CUDA:
             images, labels = images.cuda(), labels.cuda()
 
         images, labels = Variable(images, volatile=True), Variable(labels)
         x, reconstructions = net(images, labels)
+
+        if i == 0:
+            save_image(images.data, 'original_images.jpg')
+            reconstructions = reconstructions.view(-1, 1, 28, 28)
+            save_image(reconstructions.data, 'reconstructions.jpg')
         caps_loss = loss(x, labels, images, reconstructions)
         total_loss += caps_loss
 
-    print ('Loss on test set', total_loss / len(loader))
+        # Compute accuracy
+        x = torch.norm(x, dim=-1).view(-1, x.size()[1])
+        _, preds = x.data.max(dim=1)
+        _, labels = labels.max(dim=1)
+        correct_preds += preds.eq(labels.data.view_as(preds)).cpu().sum()
+
+    print ('Accuracy: {}'.format((correct_preds/len(dataset)) * 100))
 
 if __name__ == "__main__":
     main()
